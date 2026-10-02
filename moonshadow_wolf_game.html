@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>MOONSHADOW — The Wolf Within</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070d;color:#eee;font-family:Arial,Helvetica,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+#game{position:relative;width:min(1200px,100vw);height:min(650px,100vh);overflow:hidden;background:#070b15}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+#hud{position:absolute;top:20px;left:25px;right:25px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;text-shadow:0 2px 5px #000}
+.brand{font-weight:900;letter-spacing:5px;font-size:22px}.sub{font-size:10px;letter-spacing:3px;opacity:.65;margin-top:5px}
+.score{text-align:right;font-size:18px;letter-spacing:2px}.score b{font-size:27px;color:#d8b36a}
+#center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;pointer-events:none}
+.panel{background:rgba(5,8,16,.78);border:1px solid rgba(216,179,106,.45);padding:34px 48px;backdrop-filter:blur(8px);box-shadow:0 0 50px rgba(0,0,0,.5)}
+h1{margin:0;font-size:58px;letter-spacing:10px;color:#eee}.gold{color:#d8b36a}
+.tag{letter-spacing:5px;font-size:12px;margin:10px 0 25px;opacity:.7}
+button{pointer-events:auto;border:1px solid #d8b36a;background:#d8b36a;color:#080a10;padding:12px 25px;font-weight:800;letter-spacing:3px;cursor:pointer}
+button:hover{background:#f0cf89}.hint{margin-top:18px;font-size:11px;opacity:.6;letter-spacing:1px}
+.hidden{display:none!important}
+#mobile{position:absolute;bottom:18px;left:0;right:0;display:none;justify-content:center;gap:10px}
+.ctrl{width:64px;height:48px;background:rgba(0,0,0,.35);border:1px solid #ffffff30;color:white}
+@media(max-width:700px){#mobile{display:flex}.panel{padding:25px}h1{font-size:38px}.brand{font-size:16px}}
+</style>
+</head>
+<body>
+<div id="game">
+<canvas id="c"></canvas>
+<div id="hud">
+  <div><div class="brand">MOONSHADOW</div><div class="sub">THE WOLF WITHIN • 2026</div></div>
+  <div class="score">SCORE <b id="score">00000</b><br><span id="best">BEST 00000</span></div>
+</div>
+<div id="center">
+  <div class="panel" id="start">
+    <h1>MOON<span class="gold">SHADOW</span></h1>
+    <div class="tag">RUN WITH THE NIGHT</div>
+    <button id="play">ENTER THE NIGHT</button>
+    <div class="hint">SPACE / TAP — JUMP &nbsp; • &nbsp; ↓ — SLIDE &nbsp; • &nbsp; P — PAUSE</div>
+  </div>
+  <div class="panel hidden" id="over">
+    <h1>THE NIGHT<br><span class="gold">CLAIMS YOU</span></h1>
+    <div class="tag">YOUR RUN HAS ENDED</div>
+    <div id="final" style="font-size:22px;margin-bottom:22px"></div>
+    <button id="again">RUN AGAIN</button>
+    <div class="hint">PRESS SPACE TO RESTART</div>
+  </div>
+  <div class="panel hidden" id="pause">
+    <h1>PAUSED</h1><div class="tag">THE MOON WAITS</div>
+    <button id="resume">CONTINUE</button>
+  </div>
+</div>
+<div id="mobile"><button class="ctrl" id="jump">JUMP</button><button class="ctrl" id="slide">SLIDE</button></div>
+</div>
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+let W,H,dpr=1,ground=0,playing=false,paused=false,dead=false,last=0,score=0,best=+localStorage.moonshadowBest||0;
+let speed=390,spawn=0,particles=[],clouds=[],stars=[];
+const wolf={x:120,y:0,w:76,h:58,vy:0,onGround:true,duck:false};
+const obs=[],moons=[];
+const $=id=>document.getElementById(id);
+$('best').textContent='BEST '+String(best).padStart(5,'0');
+
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=canvas.clientWidth;H=canvas.clientHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ground=H-92;wolf.y=ground-wolf.h}
+addEventListener('resize',resize);resize();
+
+for(let i=0;i<90;i++)stars.push({x:Math.random(),y:Math.random()*.55,r:Math.random()*1.5+.2,a:Math.random()*.7+.2});
+for(let i=0;i<8;i++)clouds.push({x:Math.random()*1.3,y:.1+Math.random()*.3,s:.5+Math.random()});
+
+function reset(){
+ obs.length=0;moons.length=0;particles.length=0;score=0;speed=390;spawn=1;dead=false;paused=false;
+ wolf.y=ground-wolf.h;wolf.vy=0;wolf.onGround=true;wolf.duck=false;playing=true;
+ $('start').classList.add('hidden');$('over').classList.add('hidden');$('pause').classList.add('hidden');
+}
+function jump(){if(playing&&!paused&&!dead&&wolf.onGround){wolf.vy=-720;wolf.onGround=false;burst(wolf.x+35,wolf.y+55,7,'#d8b36a')}}
+function setDuck(v){wolf.duck=v&&wolf.onGround}
+addEventListener('keydown',e=>{
+ if(e.code==='Space'){e.preventDefault(); if(dead)reset(); else if(!playing)reset(); else jump()}
+ if(e.code==='ArrowDown'||e.code==='KeyS'){setDuck(true)}
+ if(e.code==='KeyP'&&!dead&&playing){paused=!paused;$('pause').classList.toggle('hidden',!paused)}
+});
+addEventListener('keyup',e=>{if(e.code==='ArrowDown'||e.code==='KeyS')setDuck(false)});
+canvas.addEventListener('pointerdown',jump);
+$('play').onclick=reset;$('again').onclick=reset;$('resume').onclick=()=>{paused=false;$('pause').classList.add('hidden')};
+$('jump').onpointerdown=jump;$('slide').onpointerdown=()=>setDuck(true);$('slide').onpointerup=()=>setDuck(false);
+
+function burst(x,y,n,col){for(let i=0;i<n;i++)particles.push({x,y,vx:(Math.random()-.5)*150,vy:(Math.random()-.8)*160,life:.5+Math.random()*.5,col})}
+function spawnObstacle(){
+ const type=Math.random()<.6?'rock':'tree';
+ let h=type==='rock'?35+Math.random()*28:72+Math.random()*35,w=type==='rock'?42+Math.random()*28:30;
+ obs.push({x:W+30,y:ground-h,w,h,type});
+ if(Math.random()<.45)moons.push({x:W+160+Math.random()*220,y:ground-110-Math.random()*90,r:10})
+}
+function collide(a,b){
+ return a.x+12<b.x+b.w&&a.x+a.w-12>b.x&&a.y+8<b.y+b.h&&a.y+a.h-7>b.y
+}
+function update(dt){
+ if(!playing||paused||dead)return;
+ speed=Math.min(700,speed+dt*4);score+=dt*12;
+ spawn-=dt;if(spawn<=0){spawnObstacle();spawn=.8+Math.random()*1.1*(430/speed)}
+ wolf.vy+=1850*dt;wolf.y+=wolf.vy*dt;
+ if(wolf.y>=ground-wolf.h){wolf.y=ground-wolf.h;wolf.vy=0;wolf.onGround=true}
+ for(let i=obs.length-1;i>=0;i--){let o=obs[i];o.x-=speed*dt;if(o.x+o.w<0)obs.splice(i,1);else if(collide(wolf,o)){gameOver()}}
+ for(let i=moons.length-1;i>=0;i--){let m=moons[i];m.x-=speed*dt;if(m.x+m.r<0)moons.splice(i,1);else{
+   let dx=wolf.x+wolf.w/2-m.x,dy=wolf.y+wolf.h/2-m.y;
+   if(dx*dx+dy*dy<(m.r+24)**2){score+=50;burst(m.x,m.y,18,'#f0d58d');moons.splice(i,1)}
+ }}
+ for(let i=particles.length-1;i>=0;i--){let p=particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=300*dt;p.life-=dt;if(p.life<=0)particles.splice(i,1)}
+ $('score').textContent=String(Math.floor(score)).padStart(5,'0');
+}
+function gameOver(){dead=true;playing=false;best=Math.max(best,Math.floor(score));localStorage.moonshadowBest=best;$('best').textContent='BEST '+String(best).padStart(5,'0');$('final').textContent='SCORE  '+String(Math.floor(score)).padStart(5,'0');$('over').classList.remove('hidden');burst(wolf.x+30,wolf.y+30,25,'#d8b36a')}
+
+function drawSky(){
+ let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#050817');g.addColorStop(.6,'#0b1325');g.addColorStop(1,'#10141c');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ for(const s of stars){ctx.globalAlpha=s.a;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(s.x*W,s.y*H,s.r,0,7);ctx.fill()}ctx.globalAlpha=1;
+ // moon
+ let mx=W*.78,my=H*.22,r=62;ctx.shadowBlur=35;ctx.shadowColor='#e7d6a2';ctx.fillStyle='#eee2bd';ctx.beginPath();ctx.arc(mx,my,r,0,7);ctx.fill();ctx.shadowBlur=0;
+ ctx.fillStyle='#9aa0ae33';for(let i=0;i<9;i++){ctx.beginPath();ctx.arc(mx-30+Math.random()*60,my-35+Math.random()*70,3+Math.random()*7,0,7);ctx.fill()}
+ // distant hills
+ ctx.fillStyle='#080d18';ctx.beginPath();ctx.moveTo(0,ground);for(let x=0;x<=W;x+=45)ctx.lineTo(x,ground-40-Math.sin(x*.012)*28);ctx.lineTo(W,ground);ctx.fill();
+}
+function drawGround(){
+ ctx.fillStyle='#06080e';ctx.fillRect(0,ground,W,H-ground);
+ ctx.strokeStyle='#d8b36a55';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,ground);ctx.lineTo(W,ground);ctx.stroke();
+ ctx.strokeStyle='#ffffff10';for(let x=0;x<W;x+=55){ctx.beginPath();ctx.moveTo(x,ground+8);ctx.lineTo(x-18,ground+35);ctx.stroke()}
+}
+function drawWolf(){
+ let x=wolf.x,y=wolf.y+(wolf.duck?18:0),h=wolf.duck?42:58;
+ ctx.save();ctx.translate(x,y);ctx.fillStyle='#c7cbd2';ctx.strokeStyle='#080b11';ctx.lineWidth=3;
+ // tail
+ ctx.beginPath();ctx.moveTo(8,33);ctx.quadraticCurveTo(-25,10,-8,-5);ctx.quadraticCurveTo(0,22,22,22);ctx.fill();ctx.stroke();
+ // body
+ ctx.beginPath();ctx.roundRect(14,20,45,28,12);ctx.fill();ctx.stroke();
+ // neck/head
+ ctx.beginPath();ctx.moveTo(48,25);ctx.lineTo(52,4);ctx.lineTo(62,-9);ctx.lineTo(69,3);ctx.lineTo(78,-1);ctx.lineTo(73,16);ctx.lineTo(63,27);ctx.closePath();ctx.fill();ctx.stroke();
+ // muzzle
+ ctx.beginPath();ctx.moveTo(67,10);ctx.lineTo(88,16);ctx.lineTo(68,21);ctx.closePath();ctx.fill();ctx.stroke();
+ // ears
+ ctx.beginPath();ctx.moveTo(53,4);ctx.lineTo(55,-17);ctx.lineTo(67,0);ctx.fill();ctx.stroke();ctx.beginPath();ctx.moveTo(68,2);ctx.lineTo(76,-15);ctx.lineTo(77,8);ctx.fill();ctx.stroke();
+ // eye
+ ctx.fillStyle='#d8b36a';ctx.beginPath();ctx.arc(68,9,3,0,7);ctx.fill();ctx.fillStyle='#090b10';ctx.beginPath();ctx.arc(69,9,1,0,7);ctx.fill();
+ // legs
+ ctx.strokeStyle='#c7cbd2';ctx.lineWidth=6;ctx.lineCap='round';let lift=Math.sin(performance.now()/80)*5;
+ ctx.beginPath();ctx.moveTo(25,44);ctx.lineTo(22,57+lift);ctx.moveTo(47,44);ctx.lineTo(50,57-lift);ctx.stroke();
+ ctx.restore();
+}
+function drawObstacle(o){
+ ctx.save();ctx.translate(o.x,o.y);
+ if(o.type==='rock'){ctx.fillStyle='#303743';ctx.strokeStyle='#0a0c12';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,o.h);ctx.lineTo(8,15);ctx.lineTo(o.w*.45,0);ctx.lineTo(o.w,17);ctx.lineTo(o.w-5,o.h);ctx.closePath();ctx.fill();ctx.stroke()}
+ else {ctx.fillStyle='#1b1718';ctx.fillRect(o.w*.35,0,o.w*.3,o.h);ctx.beginPath();ctx.moveTo(o.w*.5,25);ctx.lineTo(-12,8);ctx.lineTo(2,29);ctx.lineTo(-8,48);ctx.lineTo(o.w*.5,35);ctx.lineTo(o.w+10,15);ctx.lineTo(o.w-2,38);ctx.closePath();ctx.fill()}
+ ctx.restore();
+}
+function draw(){
+ drawSky();drawGround();
+ for(const m of moons){ctx.shadowBlur=18;ctx.shadowColor='#d8b36a';ctx.strokeStyle='#f1d58e';ctx.lineWidth=4;ctx.beginPath();ctx.arc(m.x,m.y,m.r,0,Math.PI*2);ctx.stroke();ctx.shadowBlur=0;ctx.fillStyle='#0b1020';ctx.beginPath();ctx.arc(m.x+5,m.y-3,m.r,0,7);ctx.fill()}
+ for(const o of obs)drawObstacle(o);
+ for(const p of particles){ctx.globalAlpha=Math.max(0,p.life*1.5);ctx.fillStyle=p.col;ctx.fillRect(p.x,p.y,3,3)}ctx.globalAlpha=1;
+ drawWolf();
+}
+function loop(t){let dt=Math.min(.033,(t-last)/1000||0);last=t;update(dt);draw();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+</script>
+</body>
+</html>
